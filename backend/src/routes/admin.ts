@@ -51,6 +51,59 @@ function getUserSelect() {
 
 // ── Admin Auth (no middleware) ──
 
+// POST /api/v1/admin/auth/setup — 创建首个管理员（仅一次）
+router.post('/auth/setup', async (req: Request, res: Response) => {
+  try {
+    const existingAdmin = await prisma.user.findFirst({ where: { role: 'admin', isDeleted: false } });
+    if (existingAdmin) {
+      res.status(409).json({ message: '管理员已存在' });
+      return;
+    }
+
+    const { email, password, nickname } = z.object({
+      email: z.string().email(),
+      password: z.string().min(6),
+      nickname: z.string().min(1).max(30).optional(),
+    }).parse(req.body);
+
+    // Check if email already used
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      // Upgrade to admin
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          role: 'admin',
+          passwordHash: hashPassword(password),
+          authProvider: 'email',
+        },
+      });
+      res.json({ message: '用户已升级为管理员', email });
+      return;
+    }
+
+    await prisma.user.create({
+      data: {
+        nickname: nickname || '管理员',
+        email,
+        passwordHash: hashPassword(password),
+        authProvider: 'email',
+        role: 'admin',
+        birthDate: new Date('2000-01-01'),
+      },
+    });
+
+    res.status(201).json({ message: '管理员创建成功', email });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: '参数错误', errors: err.errors });
+      return;
+    }
+    console.error('Admin setup error:', err);
+    res.status(500).json({ message: '创建失败' });
+  }
+});
+
 // POST /api/v1/admin/auth/login
 router.post('/auth/login', async (req: Request, res: Response) => {
   try {
