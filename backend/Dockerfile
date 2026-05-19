@@ -2,7 +2,9 @@ FROM node:20-slim AS builder
 WORKDIR /app
 COPY backend/ ./
 RUN npm install
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 RUN npx prisma generate
+ENV DATABASE_URL=""
 RUN npm run build
 
 FROM node:20-slim AS runner
