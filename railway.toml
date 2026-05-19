@@ -1,8 +1,10 @@
 [build]
-builder = "nixpacks"
-buildCommand = "cd backend && npm install && npm run build"
-startCommand = "cd backend && npm start"
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
 restartPolicyType = "on_failure"
+
+[service]
+startCommand = "node dist/index.js"
