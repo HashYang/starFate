@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: #f5f0e8;
+  --color-bg-warm: #efe6da;
+  --color-foreground: #2c2416;
+  --color-primary: #c4835a;
+  --color-primary-dark: #b06a45;
+  --color-primary-light: #e8d0c0;
+  --color-surface: #fefcf9;
+  --color-surface-light: #eee6dc;
+  --color-gold: #c4a04c;
+  --color-muted: #a89888;
+  --color-mystic-blue: #7a8ea8;
+  --color-energy-green: #7a9e7a;
+  --color-warning-red: #c45a4a;
+
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Warm gradient glow on the right */
+body::before {
+  content: "";
+  position: fixed;
+  top: -30%;
+  right: -20%;
+  width: 55%;
+  height: 140%;
+  background: radial-gradient(ellipse at center, rgba(212, 168, 138, 0.12), transparent 70%);
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+/* Subtle warm accent at bottom left */
+body::after {
+  content: "";
+  position: fixed;
+  bottom: -10%;
+  left: -10%;
+  width: 40%;
+  height: 40%;
+  background: radial-gradient(ellipse at center, rgba(180, 160, 140, 0.06), transparent 70%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-muted); border-radius: 2px; }
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.7s ease-out forwards;
+}
+
+.animate-fade-in-fast {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(196, 131, 90, 0.08), transparent);
+  background-size: 200px 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Safe area for bottom nav */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

@@ -1,0 +1,22 @@
+"use client";
+
+import { BottomNav } from "@/components/bottom-nav";
+
+export default function FateBookPage() {
+  return (
+    <>
+      <div className="min-h-screen px-4 pt-12 pb-28 max-w-lg mx-auto space-y-6 animate-fade-in relative z-10">
+        <div className="text-center space-y-2 pt-8">
+          <div className="w-16 h-16 mx-auto text-primary/20">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" className="w-full h-full">
+              <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-thin tracking-[0.1em] text-foreground/85">命书</h1>
+          <p className="text-xs text-muted/60 font-normal tracking-wider">即将上线，敬请期待</p>
+        </div>
+      </div>
+      <BottomNav />
+    </>
+  );
+}

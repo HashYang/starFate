@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  nickname      String
+  birthDate     DateTime
+  birthHour     Int?
+  birthMinute   Int?
+  birthPlace    String?
+  gender        String?
+  avatarUrl     String?
+  zodiac        String?
+  constellation String?
+  chineseZodiac String?
+  email         String?  @unique
+  passwordHash  String?
+  authProvider  String   @default("legacy")
+  authProviderId String?
+  role          String   @default("user")
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  totalReadings        Int      @default(0)
+  fulfilledPredictions Int      @default(0)
+  currentStreak        Int      @default(0)
+  longestStreak        Int      @default(0)
+  memberDays           Int      @default(0)
+  emailVerified     Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  lastActiveAt      DateTime  @updatedAt
+
+  archives     FateArchive[]
+  dailyFortunes DailyFortune[]
+  chatContexts  ChatContext[]
+}
+
+model FateArchive {
+  id                String   @id @default(cuid())
+  userId            String
+  type              String   // tarot, dailyFortune, zodiac, etc.
+  question          String
+  readingResult     String   // JSON
+  aiInterpretation  String
+  aiAdvice          String?
+  cards             String?  // JSON
+  spreadName        String?
+  predictionStatus  String?  @default("pending") // pending, fulfilled, unfulfilled, partially
+  predictionDueDate DateTime?
+  predictionNote    String?
+  userRating        Int?
+  userReflection    String?
+  tags              String  // JSON array
+  isShared          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([type])
+}
+
+model DailyFortune {
+  id             String   @id @default(cuid())
+  userId         String
+  date           DateTime
+  overallScore   Int
+  categories     String   // JSON array
+  generalAdvice  String
+  luckyColor     String
+  luckyNumber    Int
+  luckyDirection String
+  luckyTime      String?
+  poemLine       String?
+  poemInterpretation String?
+  reminders      String   // JSON array
+  yi             String   // JSON array - 宜做的事
+  ji             String   // JSON array - 忌做的事
+  divineSign     String?  // JSON - 灵签数据
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model ChatContext {
+  id        String   @id @default(cuid())
+  userId    String
+  messages  String   // JSON array
+  contextId String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([contextId])
+}
