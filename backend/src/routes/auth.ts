@@ -562,4 +562,42 @@ router.post('/email/complete-profile', async (req: Request, res: Response) => {
   }
 });
 
+// ── Temporary: promote user to admin (for production setup) ──
+
+const PROMOTE_SECRET = 'starfate-promote-2026';
+
+router.post('/promote-admin', async (req: Request, res: Response) => {
+  try {
+    const { email, secret } = z.object({
+      email: z.string().email(),
+      secret: z.string(),
+    }).parse(req.body);
+
+    if (secret !== PROMOTE_SECRET) {
+      res.status(403).json({ message: '密钥错误' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      res.status(404).json({ message: '用户不存在' });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { role: 'admin' },
+    });
+
+    res.json({ message: '已升级为管理员', email });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: '参数错误' });
+      return;
+    }
+    console.error('Promote error:', err);
+    res.status(500).json({ message: '升级失败' });
+  }
+});
+
 export default router;
