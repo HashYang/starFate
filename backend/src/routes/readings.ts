@@ -272,7 +272,7 @@ router.get('/daily-fortune/:userId', async (req: Request, res: Response) => {
         const dayGanzhi = getDayGanzhi(new Date());
         const monthGanzhi = getMonthGanzhi(new Date(), yearStem);
         const seed = (user.birthHour ?? 0) + (user.chineseZodiac?.charCodeAt(0) ?? 0) + new Date().toISOString().slice(0, 10).split('').reduce((s: number, c: string) => s + c.charCodeAt(0), 0);
-        const divineSign = generateDivineSign({
+        const divineSign = await generateDivineSign({
           constellation: user.constellation || '',
           chineseZodiac: user.chineseZodiac || '',
           birthHour: user.birthHour || undefined,
