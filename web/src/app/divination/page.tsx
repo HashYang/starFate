@@ -56,14 +56,6 @@ interface ArchivePage {
 
 // ── Constants ──
 
-const TOPICS = [
-  { key: "感情", emoji: "❤️", placeholder: "我和TA的感情发展会如何？" },
-  { key: "事业", emoji: "💼", placeholder: "我当前的事业选择应该怎么做？" },
-  { key: "财运", emoji: "💰", placeholder: "未来三个月的财运如何？" },
-  { key: "健康", emoji: "🌿", placeholder: "最近身体状态需要注意什么？" },
-  { key: "学业", emoji: "📚", placeholder: "这次考试/学习的结果会如何？" },
-];
-
 const SPREADS = [
   { id: "single", name: "单牌指引", count: 1, desc: "一张牌快速指引" },
   { id: "three", name: "三牌展开", count: 3, desc: "过去-现在-未来" },
@@ -218,10 +210,6 @@ export default function DivinationPage() {
   }, []);
 
   // ── Ask handlers ──
-
-  const handleTopicSelect = useCallback((topic: typeof TOPICS[0]) => {
-    setQuestion(topic.placeholder);
-  }, []);
 
   const handleStartDivination = useCallback(() => {
     if (!question.trim()) return;
@@ -412,23 +400,6 @@ export default function DivinationPage() {
             </button>
           </div>
         )}
-
-        {/* Topic quick select */}
-        <div>
-          <label className="block text-xs text-muted/70 font-normal tracking-wider mb-2.5">选择话题</label>
-          <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-            {TOPICS.map(topic => (
-              <button
-                key={topic.key}
-                onClick={() => handleTopicSelect(topic)}
-                className="shrink-0 px-4 py-2 rounded-full text-xs tracking-wider border transition-colors
-                  bg-transparent border-surface-light text-muted/70 hover:border-primary/30 hover:text-primary/70"
-              >
-                {topic.emoji} {topic.key}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* Question input */}
         <div>
