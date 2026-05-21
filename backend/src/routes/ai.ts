@@ -16,6 +16,7 @@ router.post('/chat', async (req: Request, res: Response) => {
       message: z.string().min(1).max(1000),
       userId: z.string(),
       contextId: z.string().optional(),
+      divinationContext: z.string().optional(),
     });
     const data = schema.parse(req.body);
 
@@ -42,8 +43,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     const reply = await chatWithFortuneteller(data.message, contextMessages, {
       constellation: user?.constellation || undefined,
       chineseZodiac: user?.chineseZodiac || undefined,
-      nickname: user?.nickname || undefined,
-    });
+    }, data.divinationContext);
 
     // Save context
     const newMessages = [
@@ -72,6 +72,33 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
     console.error('Chat error:', err);
     res.status(500).json({ message: '对话失败，请稍后再试' });
+  }
+});
+
+// GET /api/v1/ai/chat/history/:userId — Get latest chat history for a user
+router.get('/chat/history/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    if (req.user?.userId !== userId) {
+      res.status(403).json({ message: '无权访问' });
+      return;
+    }
+
+    const latest = await prisma.chatContext.findFirst({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!latest) {
+      res.json({ messages: [], contextId: null });
+      return;
+    }
+
+    const messages = JSON.parse(latest.messages).slice(-50);
+    res.json({ messages, contextId: latest.contextId });
+  } catch (err) {
+    console.error('Chat history error:', err);
+    res.status(500).json({ message: '获取历史记录失败' });
   }
 });
 

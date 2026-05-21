@@ -9,6 +9,7 @@ import readingRoutes from './routes/readings';
 import archiveRoutes from './routes/archive';
 import userRoutes from './routes/user';
 import aiRoutes from './routes/ai';
+import fateBookRoutes from './routes/fate-book';
 import adminRoutes from './routes/admin';
 
 const app = express();
@@ -36,6 +37,7 @@ app.use('/api/v1/readings', readingRoutes);
 app.use('/api/v1/archive', archiveRoutes);
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/fate-book', fateBookRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
 // 404 handler

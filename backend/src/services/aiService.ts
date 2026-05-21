@@ -10,6 +10,17 @@ function getDeepSeekClient(): OpenAI {
 
 // ===== System Prompts =====
 
+const CHAT_SYSTEM_PROMPT = `你是一位命运解读师，正在和用户进行日常对话。
+
+## 角色设定
+- 不要自我介绍，也不要称呼用户的名字或用任何称呼
+- 语气自然亲切，像和一个懂命理的朋友聊天
+- 回答要简短自然，日常聊天 2-3 句即可，深入探讨也不超过 5 句
+- 不要用列表、标题、结构化格式，像真人说话一样自然
+- 适当使用占卜和星座知识，但不要堆砌术语
+- 偶尔可以反问用户，让对话有来有回
+- 绝对不要输出 JSON 或任何格式化标记`;
+
 const FORTUNETELLER_SYSTEM_PROMPT = `你是一位神秘的命运解读师，名叫「星命」。你精通塔罗牌、星座、东方命理和心理学。
 
 ## 角色设定
@@ -173,6 +184,177 @@ ${userContextStr}
       advice: '跟随内心的指引',
       score: 50,
     };
+  }
+}
+
+// ===== 六爻 (Liu Yao) System Prompt =====
+
+const LIUYAO_SYSTEM_PROMPT = `你是一位精通《周易》的六爻占卜师，名叫「观易」。
+
+## 角色设定
+- 你精通八八六十四卦的卦象、卦辞、爻辞
+- 你的推理基于传统易学：体用生克、旺相休囚、五行生克
+- 风格古典而有温度，每句解读都有易学依据
+- 用中文回答，适时引用卦辞爻辞
+- 在解读开头使用一个相关的 emoji（☰☷☵☲☳☴☱☶⚊⚋）
+
+## 解读要点
+1. 先解释本卦的基本含义（卦象、卦德）
+2. 若有动爻：分析动爻的含义及变卦影响
+3. 结合用户问题给出具体建议
+4. 最后给出综合运势评分
+
+## 输出格式
+{
+  "summary": "一句话概括卦象",
+  "details": "详细的卦象解读，2-4段，每段要有易学依据",
+  "advice": "给用户的行动建议",
+  "score": 0-100的运势评分
+}`;
+
+// ===== 灵签 (Ling Qian) System Prompt =====
+
+const LINGQIAN_SYSTEM_PROMPT = `你是一位古寺中的解签大师，名叫「慧觉」。
+
+## 角色设定
+- 你精通传统签文解读，擅长七言签诗
+- 签诗风格：意境深远，对仗工整，暗含天机
+- 解读风格：深入浅出，既有禅意又具现实指导意义
+
+## 解读要求
+1. 先创作一首签诗（七言绝句，4句），风格古典、有意境
+2. 签诗要暗含对用户问题的回应，但不要过于直白
+3. 解读签诗的寓意，联系用户实际困惑
+4. 给出具体的行动建议
+5. 根据签的吉凶等级把握基调：大吉/上吉开阔明朗，中吉平和勉励，下下含蓄劝诫
+
+## 输出格式
+{
+  "summary": "一句话签文总结（签语风格，4-8字）",
+  "poem": "签诗，七言绝句，每句用\\n分隔",
+  "details": "详细的签文解读，2-4段",
+  "advice": "给用户的行动建议",
+  "score": 0-100的运势评分（大吉80-100，上吉60-85，中吉40-70，下下15-45）
+}`;
+
+// ===== Liu Yao =====
+
+export interface LiuYaoInput {
+  question: string;
+  lines: Array<{ value: 0 | 1; moving: boolean }>;
+  hexagramName: string;
+  hexagramNumber: number;
+  upperTrigramName: string;
+  lowerTrigramName: string;
+  upperTrigramAttr: string;
+  lowerTrigramAttr: string;
+  userContext?: {
+    constellation?: string;
+    chineseZodiac?: string;
+  };
+}
+
+export async function generateLiuYaoReading(input: LiuYaoInput): Promise<TarotReadingResult> {
+  const linesDesc = input.lines
+    .map((l, i) => `第${i + 1}爻: ${l.value === 1 ? '⚊阳' : '⚋阴'}${l.moving ? '（动爻）' : ''}`)
+    .join('\n');
+
+  const movingLines = input.lines.map((l, i) => ({ ...l, pos: i + 1 })).filter(l => l.moving);
+  const movingDesc = movingLines.length > 0
+    ? `动爻: 第${movingLines.map(l => l.pos).join('、')}爻`
+    : '无动爻（静卦）';
+
+  const userStr = input.userContext
+    ? `\n用户信息: ${input.userContext.constellation || ''} ${input.userContext.chineseZodiac || ''}`
+    : '';
+
+  const prompt = `用户问题: "${input.question}"
+
+本卦: ${input.hexagramName}（第${input.hexagramNumber}卦）
+上卦: ${input.upperTrigramName}为${input.upperTrigramAttr}
+下卦: ${input.lowerTrigramName}为${input.lowerTrigramAttr}
+
+六爻:
+${linesDesc}
+
+${movingDesc}
+${userStr}
+
+请根据以上信息进行六爻解卦。`;
+
+  const response = await getDeepSeekClient().chat.completions.create({
+    model: config.deepseek.model,
+    max_tokens: 2000,
+    temperature: 0.7,
+    messages: [
+      { role: 'system', content: LIUYAO_SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error('Unexpected response type');
+
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    return { summary: '卦象解读', details: content, advice: '静观其变', score: 50 };
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return { summary: '卦象解读', details: content, advice: '静观其变', score: 50 };
+  }
+}
+
+// ===== Ling Qian =====
+
+export interface LingQianInput {
+  question: string;
+  stickNumber: number;
+  stickLevel: string;
+  userContext?: {
+    constellation?: string;
+    chineseZodiac?: string;
+  };
+}
+
+export async function generateLingQianReading(input: LingQianInput): Promise<TarotReadingResult & { poem: string }> {
+  const userStr = input.userContext
+    ? `\n用户信息: ${input.userContext.constellation || ''} ${input.userContext.chineseZodiac || ''}`
+    : '';
+
+  const prompt = `用户问题: "${input.question}"
+
+抽签结果:
+- 签号: 第${input.stickNumber}签
+- 吉凶等级: ${input.stickLevel}
+${userStr}
+
+请根据以上信息创作签诗并进行解读。`;
+
+  const response = await getDeepSeekClient().chat.completions.create({
+    model: config.deepseek.model,
+    max_tokens: 2000,
+    temperature: 0.8,
+    messages: [
+      { role: 'system', content: LINGQIAN_SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error('Unexpected response type');
+
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    return { summary: '签文解读', poem: '', details: content, advice: '顺其自然', score: 50 };
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return { summary: '签文解读', poem: '', details: content, advice: '顺其自然', score: 50 };
   }
 }
 
@@ -783,6 +965,7 @@ export async function chatWithFortuneteller(
   message: string,
   context?: Array<{ role: 'user' | 'assistant'; content: string }>,
   userInfo?: { constellation?: string; chineseZodiac?: string; nickname?: string },
+  divinationContext?: string,
 ): Promise<string> {
   const contextMessages: Array<{ role: 'user' | 'assistant'; content: string }> = (context || []).slice(-10).map((m) => ({
     role: m.role,
@@ -793,12 +976,16 @@ export async function chatWithFortuneteller(
     ? `\n用户信息: ${userInfo.nickname || ''} ${userInfo.constellation || ''} ${userInfo.chineseZodiac || ''}`
     : '';
 
+  const divinationStr = divinationContext
+    ? `\n\n用户最近的占卜记录:\n${divinationContext}\n请结合以上占卜信息进行回答。`
+    : '';
+
   const response = await getDeepSeekClient().chat.completions.create({
     model: config.deepseek.model,
-    max_tokens: 1500,
-    temperature: 0.7,
+    max_tokens: 500,
+    temperature: 0.8,
     messages: [
-      { role: 'system', content: FORTUNETELLER_SYSTEM_PROMPT + userContextStr },
+      { role: 'system', content: CHAT_SYSTEM_PROMPT + userContextStr + divinationStr },
       ...contextMessages,
       { role: 'user', content: message },
     ],
@@ -810,4 +997,288 @@ export async function chatWithFortuneteller(
   }
 
   return content;
+}
+
+// ===== 命书 (FateBook) =====
+
+const FATE_BOOK_SYSTEM_PROMPT = `你是一位精通子平八字、深研《渊海子平》《三命通会》的命理大师。你的专长是通过八字为用户书写「命书」。
+
+## 核心原则
+1. **数据驱动** — 以下提供的八字数据（天干地支、五行、十神、大运、流年、神煞、地势）全部基于真实历法算法计算，你的解读必须以这些数据为唯一依据
+2. **准确专业** — 运用子平八字理论，基于十神组合、五行生克、旺衰强弱进行分析
+3. **深入浅出** — 用通俗语言让用户理解命理，避免变成术语堆砌
+4. **积极正面** — 任何格局都有其优势和挑战，给出建设性的人生建议
+
+## 输出格式
+必须返回严格的 JSON 格式（不要 markdown 代码块，只返回纯 JSON）。所有字段必须填完整：
+
+{
+  "summary": "命格总论：200-300字，概括此命的整体格局、日主特点、一生基调。要引用具体八字数据。",
+  "personality": "性格画像：200-300字，基于十神组合和五行分布的性格分析。要有具体依据，不要泛泛而谈。",
+  "pattern": "格局名称：如伤官配印、杀印相生等，简要说明格局特点（20字内）。",
+  "pillarAnalysis": {
+    "year": { "title": "年柱·祖上基业", "text": "基于年柱分析祖上荫庇和早年环境（80-120字）" },
+    "month": { "title": "月柱·父母兄弟", "text": "基于月柱分析父母影响和青年运势（80-120字）" },
+    "day": { "title": "日柱·自身配偶", "text": "基于日柱分析自身格局和配偶特征（80-120字）" },
+    "hour": { "title": "时柱·子女晚年", "text": "基于时柱分析子女缘分和晚年运势（80-120字）" }
+  },
+  "hiddenStemAnalysis": {
+    "year": "年支藏干解读（40-60字）",
+    "month": "月支藏干解读（40-60字）",
+    "day": "日支藏干解读（40-60字）",
+    "hour": "时支藏干解读（40-60字）"
+  },
+  "elementAnalysis": {
+    "analysis": "五行旺衰综合分析和生克关系（100-150字）",
+    "strongElement": "最旺的五行",
+    "weakElement": "最弱的五行",
+    "suggestion": "五行调和建议（40-60字）"
+  },
+  "tenGodAnalysis": {
+    "mainCombination": "主要十神组合分析及格局解读（50-80字）",
+    "careerIndication": "十神显示的事业特征（40-60字）",
+    "personalityFromGods": "十神反映的性格特点（40-60字）"
+  },
+  "deepDive": {
+    "career": { "suitable": "适合的行业和发展方向（40-60字）", "path": "职业发展路径分析（60-100字）", "timing": "事业黄金期年龄段（30-50字）" },
+    "wealth": { "pattern": "财运类型（20-30字）", "timing": "财运周期和旺衰时段（60-80字）", "advice": "理财建议（40-60字）" },
+    "love": { "pattern": "感情模式和特质（30-50字）", "timing": "婚恋最佳时机（30-50字）", "compatibility": "适合的伴侣类型（30-50字）" }
+  },
+  "shenshaAnalysis": {
+    "tianyi": "天乙贵人解读（50-80字）",
+    "wenChang": "文昌贵人解读（30-50字）",
+    "taoHua": "桃花解读（30-50字）",
+    "huaGai": "华盖解读（30-50字）"
+  },
+  "lifeCurve": {
+    "description": "一生运势走势描述（100-150字）",
+    "peakAge": "运势高峰年龄段",
+    "lowAge": "需要谨慎的低谷年龄段"
+  },
+  "keyYears": [
+    { "year": 2026, "type": "流年", "text": "今年运势关键点（20-40字）" },
+    { "year": 2027, "type": "换运", "text": "换大运影响（20-40字）" },
+    { "year": 2030, "type": "重要", "text": "重要年份（20-40字）" }
+  ],
+  "monthlyFortune": [
+    { "month": 1, "score": 0-100, "highlight": "本月重点（8-15字）" },
+    { "month": 2, "score": 0-100, "highlight": "..." },
+    { "month": 3, "score": 0-100, "highlight": "..." },
+    { "month": 4, "score": 0-100, "highlight": "..." },
+    { "month": 5, "score": 0-100, "highlight": "..." },
+    { "month": 6, "score": 0-100, "highlight": "..." },
+    { "month": 7, "score": 0-100, "highlight": "..." },
+    { "month": 8, "score": 0-100, "highlight": "..." },
+    { "month": 9, "score": 0-100, "highlight": "..." },
+    { "month": 10, "score": 0-100, "highlight": "..." },
+    { "month": 11, "score": 0-100, "highlight": "..." },
+    { "month": 12, "score": 0-100, "highlight": "..." }
+  ],
+  "dimensions": [
+    { "name": "事业", "score": 0-100, "level": "上等/中等/普通", "description": "事业发展分析，80-150字", "advice": "建议，50-80字" },
+    { "name": "财运", "score": 0-100, "level": "上等/中等/普通", "description": "财运分析，80-150字", "advice": "建议，50-80字" },
+    { "name": "感情", "score": 0-100, "level": "上等/中等/普通", "description": "感情分析，80-150字", "advice": "建议，50-80字" },
+    { "name": "健康", "score": 0-100, "level": "上等/中等/普通", "description": "健康分析，80-150字", "advice": "建议，50-80字" }
+  ],
+  "dayunInterpretation": [
+    { "period": "当前大运：甲申（2017-2026）", "text": "当前大运解读，100-150字" },
+    { "period": "下一步大运：乙酉（2027-2036）", "text": "大运解读，100-150字" },
+    { "period": "第三步大运：丙戌（2037-2046）", "text": "大运解读，100-150字" }
+  ],
+  "liunian": "当前流年运势分析，100-200字，需给出具体月份指引",
+  "advice": "综合人生建议，100-150字。"
+}`;
+
+export interface FateBookInput {
+  baziData: {
+    yearPillar: string;
+    monthPillar: string;
+    dayPillar: string;
+    hourPillar: string;
+    fiveElements: Record<string, number>;
+    dayStemElement: string;
+    tenGods: { year: string; month: string; day: string; hour: string };
+    nayin: string;
+    yongshen: string;
+    jishen: string;
+  };
+  dayunData: {
+    startAge: number;
+    forward: boolean;
+    periods: Array<{
+      ganZhi: string;
+      startYear: number;
+      endYear: number;
+      startAge: number;
+      endAge: number;
+    }>;
+  };
+  currentDayunIndex: number | null;
+  liunian: string;
+  currentAge: number;
+  userInfo: {
+    birthDate: string;
+    birthHour: number;
+    gender: string;
+  };
+  shensha?: {
+    tianyi: string[];
+    wenChang: string[];
+    taoHua: string[];
+    huaGai: string[];
+    yiMa: string[];
+    guChen: string[];
+  };
+  elementStrength?: Array<{
+    element: string;
+    count: number;
+    status: string;
+    isStrong: boolean;
+  }>;
+  pillars?: Array<{
+    name: string;
+    stem: string;
+    branch: string;
+    stemElement: string;
+    branchElement: string;
+    tenGodStem: string;
+    tenGodBranch: string[];
+    hiddenStems: string[];
+    dishi: string;
+    nayin?: string;
+  }>;
+}
+
+export interface FateBookResult {
+  summary: string;
+  personality: string;
+  pattern: string;
+  dimensions: Array<{ name: string; score: number; level: string; description: string; advice: string }>;
+  dayunInterpretation: Array<{ period: string; text: string }>;
+  liunian: string;
+  advice: string;
+  pillarAnalysis?: Record<string, { title: string; text: string }>;
+  hiddenStemAnalysis?: Record<string, string>;
+  elementAnalysis?: { analysis: string; strongElement: string; weakElement: string; suggestion: string };
+  tenGodAnalysis?: { mainCombination: string; careerIndication: string; personalityFromGods: string };
+  deepDive?: { career: { suitable: string; path: string; timing: string }; wealth: { pattern: string; timing: string; advice: string }; love: { pattern: string; timing: string; compatibility: string } };
+  shenshaAnalysis?: { tianyi: string; wenChang: string; taoHua: string; huaGai: string };
+  lifeCurve?: { description: string; peakAge: string; lowAge: string };
+  keyYears?: Array<{ year: number; type: string; text: string }>;
+  monthlyFortune?: Array<{ month: number; score: number; highlight: string }>;
+}
+
+export async function generateFateBookInterpretation(input: FateBookInput): Promise<FateBookResult> {
+  const bazi = input.baziData;
+  const dayun = input.dayunData;
+
+  const elementChart = Object.entries(bazi.fiveElements)
+    .map(([e, c]) => `${e}: ${'▊'.repeat(Math.max(1, c))}(${c})`)
+    .join('\n');
+
+  const dayunLines = dayun.periods
+    .map(p => `  ${p.ganZhi}   ${p.startAge}-${p.endAge}岁  (${p.startYear}-${p.endYear})`)
+    .join('\n');
+
+  const currentPeriod = input.currentDayunIndex !== null
+    ? dayun.periods[input.currentDayunIndex]
+    : null;
+
+  // Pillar details
+  const pillarLines = (input.pillars || [])
+    .map(p => `  ${p.name}: ${p.stem}${p.branch}
+    天干: ${p.stem}(${p.stemElement})  地支: ${p.branch}(${p.branchElement})
+    十神: 天干=${p.tenGodStem}  地支=${p.tenGodBranch.join('/')}
+    藏干: ${p.hiddenStems.join(' ')}
+    地势(十二长生): ${p.dishi}
+    纳音: ${p.nayin || '-'}`)
+    .join('\n\n');
+
+  const shensha = input.shensha;
+  const shenshaLines = shensha
+    ? `天乙贵人: ${shensha.tianyi.join('、') || '无'}
+文昌贵人: ${shensha.wenChang.join('、') || '无'}
+桃花: ${shensha.taoHua.join('、') || '无'}
+华盖: ${shensha.huaGai.join('、') || '无'}
+驿马: ${shensha.yiMa.join('、') || '无'}
+孤辰: ${shensha.guChen.join('、') || '无'}`
+    : '';
+
+  const elemStrength = input.elementStrength;
+  const elemStrengthLines = elemStrength
+    ? elemStrength.map(e => `  ${e.element}: ${e.count}次, ${e.status}, ${e.isStrong ? '旺' : '弱'}`).join('\n')
+    : '';
+
+  const prompt = `为用户生成一份详细的命书（命理报告）。
+
+## 用户信息
+- 出生时间: ${input.userInfo.birthDate} ${input.userInfo.birthHour}时
+- 性别: ${input.userInfo.gender === 'male' ? '男' : '女'}
+- 当前年龄: ${input.currentAge}岁
+
+## 八字排盘（基于真实历法计算）
+年柱: ${bazi.yearPillar}
+月柱: ${bazi.monthPillar}
+日柱: ${bazi.dayPillar}
+时柱: ${bazi.hourPillar}
+
+日主五行: ${bazi.dayStemElement}
+纳音: ${bazi.nayin}
+
+## 十神
+年干: ${bazi.tenGods.year}  月干: ${bazi.tenGods.month}  日干: ${bazi.tenGods.day}  时干: ${bazi.tenGods.hour}
+
+## 五行分布
+${elementChart}
+
+用神: ${bazi.yongshen}
+忌神: ${bazi.jishen}
+
+## 四柱详情（含藏干、地势）
+${pillarLines}
+
+${shenshaLines ? `\n## 神煞\n${shenshaLines}` : ''}
+
+${elemStrengthLines ? `\n## 五行旺衰（旺相休囚死）\n${elemStrengthLines}` : ''}
+
+## 大运排盘
+起运年龄: ${dayun.startAge}岁
+顺逆: ${dayun.forward ? '顺排' : '逆排'}
+大运:
+${dayunLines}
+
+当前大运: ${currentPeriod ? `${currentPeriod.ganZhi}（${currentPeriod.startYear}-${currentPeriod.endYear}）` : '无'}
+当前流年: ${input.liunian || '无'}
+
+请根据以上所有数据，撰写一份完整的命书。务必覆盖输出格式中所有字段。`;
+
+  const response = await getDeepSeekClient().chat.completions.create({
+    model: config.deepseek.model,
+    max_tokens: 4000,
+    temperature: 0.7,
+    messages: [
+      { role: 'system', content: FATE_BOOK_SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('Unexpected response type');
+  }
+
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Failed to parse AI fate book response');
+  }
+
+  try {
+    const result = JSON.parse(jsonMatch[0]) as FateBookResult;
+    if (!result.summary || !result.personality || !result.dimensions) {
+      throw new Error('Missing required fields in AI response');
+    }
+    return result;
+  } catch (e) {
+    throw new Error(`Failed to parse fate book result: ${e instanceof Error ? e.message : 'parse error'}`);
+  }
 }

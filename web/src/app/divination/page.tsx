@@ -4,55 +4,16 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { BottomNav } from "@/components/bottom-nav";
 import { readings, archive } from "@/lib/api";
+import type { ArchiveEntry, ArchivePage, DivinationMode, YaoLine, FortuneStick } from "@/lib/divination-types";
+import { scoreColor, scoreBarColor, scoreLabel, relativeTime, suitColor, parseReadingResult } from "@/lib/divination-types";
+import LiuYaoDrawing from "@/components/divination/liuyao-drawing";
+import LingQianDrawing from "@/components/divination/lingqian-drawing";
+import LiuYaoResult from "@/components/divination/liuyao-result";
+import LingQianResult from "@/components/divination/lingqian-result";
 
 // ── Types ──
 
 type Step = "ask" | "drawing" | "result" | "history";
-
-interface TarotCard {
-  name: string;
-  nameCn: string;
-  suit: string;
-  isReversed: boolean;
-  keyword: string;
-  meaningLove: string;
-  meaningCareer: string;
-  meaningWealth: string;
-}
-
-interface TarotReading {
-  sessionId: string;
-  question: string;
-  cards: TarotCard[];
-  interpretation: string;
-  advice: string;
-  score: number;
-  spreadName: string;
-  archivedId: string;
-}
-
-interface ArchiveEntry {
-  id: string;
-  userId: string;
-  type: string;
-  question: string;
-  readingResult: string;
-  aiInterpretation: string;
-  aiAdvice: string;
-  cards: string;
-  spreadName: string;
-  score: number;
-  predictionStatus: string;
-  createdAt: string;
-}
-
-interface ArchivePage {
-  items: ArchiveEntry[];
-  total: number;
-  page: number;
-  pageSize: number;
-  hasMore: boolean;
-}
 
 // ── Constants ──
 
@@ -70,64 +31,25 @@ const ATMOSPHERE_TEXT = [
   "宇宙在低语...",
 ];
 
-// ── Helpers ──
+const MODE_TABS: { key: DivinationMode; label: string }[] = [
+  { key: "tarot", label: "塔罗占卜" },
+  { key: "liuyao", label: "六爻占卜" },
+  { key: "lingqian", label: "灵签占卜" },
+];
 
-function scoreColor(s: number): string {
-  if (s >= 80) return "text-gold";
-  if (s >= 60) return "text-energy-green";
-  if (s >= 40) return "text-mystic-blue";
-  return "text-muted";
-}
+const HISTORY_TABS: { key: DivinationMode | "all"; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "tarot", label: "塔罗" },
+  { key: "liuyao", label: "六爻" },
+  { key: "lingqian", label: "灵签" },
+];
 
-function scoreBarColor(s: number): string {
-  if (s >= 80) return "bg-gold";
-  if (s >= 60) return "bg-energy-green";
-  if (s >= 40) return "bg-mystic-blue";
-  return "bg-muted";
-}
-
-function scoreLabel(s: number): string {
-  if (s >= 90) return "极佳";
-  if (s >= 80) return "上佳";
-  if (s >= 60) return "尚佳";
-  if (s >= 40) return "平平";
-  return "待机";
-}
-
-function relativeTime(dateStr: string): string {
-  const now = Date.now();
-  const diff = now - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}分钟前`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}小时前`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}天前`;
-  if (days < 30) return `${Math.floor(days / 7)}周前`;
-  return `${Math.floor(days / 30)}个月前`;
-}
-
-function suitColor(suit: string): string {
-  switch (suit) {
-    case "major": return "text-gold";
-    case "cups": return "text-mystic-blue";
-    case "wands": return "text-warning-red";
-    case "swords": return "text-primary";
-    case "pentacles": return "text-energy-green";
-    default: return "text-muted";
-  }
-}
-
-function parseReadingResult(entry: ArchiveEntry): { score: number; interpretation: string; advice: string } {
-  try {
-    const r = JSON.parse(entry.readingResult);
-    return {
-      score: r.score ?? 50,
-      interpretation: r.details || entry.aiInterpretation,
-      advice: r.advice || entry.aiAdvice || "",
-    };
-  } catch {
-    return { score: 50, interpretation: entry.aiInterpretation, advice: entry.aiAdvice || "" };
+function typeLabel(type: string): string {
+  switch (type) {
+    case "tarot": return "塔罗占卜";
+    case "liuyao": return "六爻占卜";
+    case "lingqian": return "灵签占卜";
+    default: return type;
   }
 }
 
@@ -138,18 +60,14 @@ function CardBackSVG({ className }: { className?: string }) {
     <svg viewBox="0 0 120 180" className={className}>
       <rect x="2" y="2" width="116" height="176" rx="6" fill="#fefcf9" stroke="#e8d0c0" strokeWidth="1.5" />
       <rect x="6" y="6" width="108" height="168" rx="4" fill="none" stroke="#e8d0c0" strokeWidth="0.5" />
-      {/* Decorative star */}
       <circle cx="60" cy="60" r="20" fill="none" stroke="#c4835a" strokeWidth="0.5" opacity="0.4" />
       <circle cx="60" cy="60" r="14" fill="none" stroke="#c4835a" strokeWidth="0.3" opacity="0.3" />
       <path d="M60 42 L63 55 L77 55 L66 63 L70 77 L60 68 L50 77 L54 63 L43 55 L57 55 Z" fill="#c4835a" opacity="0.15" />
-      {/* Moon crescent */}
       <path d="M90 130 A12 12 0 1 0 102 118 A14 14 0 1 1 90 130 Z" fill="#c4835a" opacity="0.12" />
-      {/* Corner ornaments */}
       <circle cx="18" cy="18" r="3" fill="#c4835a" opacity="0.1" />
       <circle cx="102" cy="18" r="3" fill="#c4835a" opacity="0.1" />
       <circle cx="18" cy="162" r="3" fill="#c4835a" opacity="0.1" />
       <circle cx="102" cy="162" r="3" fill="#c4835a" opacity="0.1" />
-      {/* Center text */}
       <text x="60" y="105" textAnchor="middle" fontSize="8" fill="#c4835a" opacity="0.2" letterSpacing="4">✦ 星 命 ✦</text>
     </svg>
   );
@@ -167,25 +85,29 @@ export default function DivinationPage() {
   // Step
   const [step, setStep] = useState<Step>("ask");
 
+  // Mode
+  const [mode, setMode] = useState<DivinationMode>("tarot");
+
   // Ask step
   const [question, setQuestion] = useState("");
   const [selectedSpread, setSelectedSpread] = useState("three");
 
-  // Drawing step
-  const [drawProgress, setDrawProgress] = useState(0); // cards revealed so far
+  // Drawing step (tarot only)
+  const [drawProgress, setDrawProgress] = useState(0);
   const [atmosText, setAtmosText] = useState("");
   const drawingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Result step
-  const [reading, setReading] = useState<TarotReading | null>(null);
+  const [reading, setReading] = useState<any>(null);
   const [expandedCard, setExpandedCard] = useState<number | null>(null);
 
   // History step
-  const [historyEntries, setHistoryEntries] = useState<ArchiveEntry[]>([]);
+  const [allHistoryEntries, setAllHistoryEntries] = useState<ArchiveEntry[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<DivinationMode | "all">("all");
 
   // Global
   const [loading, setLoading] = useState(false);
@@ -209,16 +131,28 @@ export default function DivinationPage() {
     return () => drawingTimers.current.forEach(clearTimeout);
   }, []);
 
+  // ── Reset ──
+
+  const handleReset = useCallback(() => {
+    setStep("ask");
+    setReading(null);
+    setQuestion("");
+    setExpandedCard(null);
+    setDrawProgress(0);
+  }, []);
+
   // ── Ask handlers ──
 
   const handleStartDivination = useCallback(() => {
     if (!question.trim()) return;
     setError(null);
     setRateLimited(false);
-    setDrawProgress(0);
     setStep("drawing");
 
-    // Set up sequential card reveal
+    if (mode !== "tarot") return;
+
+    // Tarot: sequential card reveal with timers
+    setDrawProgress(0);
     const spread = SPREADS.find(s => s.id === selectedSpread)!;
     const interval = spread.id === "celtic" ? 1500 : 1200;
     const totalCards = spread.count;
@@ -271,7 +205,55 @@ export default function DivinationPage() {
     timers.push(apiTimer);
 
     drawingTimers.current = timers;
-  }, [question, selectedSpread, userId]);
+  }, [question, selectedSpread, userId, mode]);
+
+  // ── Drawing completion handlers ──
+
+  const handleLiuYaoComplete = useCallback(async (lines: YaoLine[]) => {
+    setLoading(true);
+    setAtmosText("卦象解读中...");
+    try {
+      const result = await readings.liuyao({
+        question: question.trim(),
+        lines,
+        userId: userId!,
+      });
+      setReading(result);
+      setStep("result");
+    } catch (e: any) {
+      if (e.status === 429) {
+        setRateLimited(true);
+        setStep("ask");
+      } else {
+        setError(e.message || "占卜失败，请稍后再试");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [question, userId]);
+
+  const handleLingQianComplete = useCallback(async (stick: FortuneStick) => {
+    setLoading(true);
+    setAtmosText("签文解读中...");
+    try {
+      const result = await readings.lingqian({
+        question: question.trim(),
+        stickNumber: stick.number,
+        userId: userId!,
+      });
+      setReading(result);
+      setStep("result");
+    } catch (e: any) {
+      if (e.status === 429) {
+        setRateLimited(true);
+        setStep("ask");
+      } else {
+        setError(e.message || "占卜失败，请稍后再试");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [question, userId]);
 
   // ── History handlers ──
 
@@ -280,12 +262,10 @@ export default function DivinationPage() {
     setHistoryLoading(true);
     try {
       const data: ArchivePage = await archive.list(userId, pageNum);
-      // Filter tarot only
-      const tarotItems = data.items.filter((i: ArchiveEntry) => i.type === "tarot");
       if (pageNum === 1) {
-        setHistoryEntries(tarotItems);
+        setAllHistoryEntries(data.items);
       } else {
-        setHistoryEntries(prev => [...prev, ...tarotItems]);
+        setAllHistoryEntries(prev => [...prev, ...data.items]);
       }
       setHasMoreHistory(data.hasMore);
       setHistoryPage(pageNum);
@@ -371,7 +351,6 @@ export default function DivinationPage() {
   // ── Ask Screen ──
 
   function renderAsk() {
-    const spread = SPREADS.find(s => s.id === selectedSpread)!;
     return (
       <div className="space-y-6">
         {/* Header */}
@@ -383,6 +362,23 @@ export default function DivinationPage() {
           </div>
           <h1 className="text-2xl font-thin tracking-[0.1em] text-foreground/85">AI 占卜</h1>
           <p className="text-xs text-muted/50 font-normal tracking-wider">向命运提问，聆听内心的声音</p>
+        </div>
+
+        {/* Mode selector */}
+        <div className="flex gap-1 bg-surface-light/50 rounded-2xl p-1">
+          {MODE_TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setMode(tab.key)}
+              className={`flex-1 py-2.5 text-xs tracking-wider rounded-xl transition-all ${
+                mode === tab.key
+                  ? "bg-surface shadow-sm text-foreground/80"
+                  : "text-muted/60 hover:text-muted"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Rate limited banner */}
@@ -416,29 +412,31 @@ export default function DivinationPage() {
           <p className="text-xs text-muted/30 text-right mt-1">{question.length}/500</p>
         </div>
 
-        {/* Spread selection */}
-        <div>
-          <label className="block text-xs text-muted/70 font-normal tracking-wider mb-2.5">选择牌阵</label>
-          <div className="flex gap-3 overflow-x-auto scrollbar-none pb-1">
-            {SPREADS.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setSelectedSpread(s.id)}
-                className={`shrink-0 w-32 bg-surface/60 backdrop-blur-xl rounded-2xl border p-4 text-left transition-all cursor-pointer ${
-                  selectedSpread === s.id
-                    ? "border-primary/30 bg-primary/5"
-                    : "border-surface-light hover:border-primary/20"
-                }`}
-              >
-                <div className="flex items-center justify-center h-8 mb-2">
-                  {renderSpreadIcon(s.id, selectedSpread === s.id)}
-                </div>
-                <p className="text-xs text-foreground/80 font-normal">{s.name}</p>
-                <p className="text-[10px] text-muted/50 mt-0.5">{s.count} 张牌</p>
-              </button>
-            ))}
+        {/* Spread selection (tarot only) */}
+        {mode === "tarot" && (
+          <div>
+            <label className="block text-xs text-muted/70 font-normal tracking-wider mb-2.5">选择牌阵</label>
+            <div className="flex gap-3 overflow-x-auto scrollbar-none pb-1">
+              {SPREADS.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedSpread(s.id)}
+                  className={`shrink-0 w-32 bg-surface/60 backdrop-blur-xl rounded-2xl border p-4 text-left transition-all cursor-pointer ${
+                    selectedSpread === s.id
+                      ? "border-primary/30 bg-primary/5"
+                      : "border-surface-light hover:border-primary/20"
+                  }`}
+                >
+                  <div className="flex items-center justify-center h-8 mb-2">
+                    {renderSpreadIcon(s.id, selectedSpread === s.id)}
+                  </div>
+                  <p className="text-xs text-foreground/80 font-normal">{s.name}</p>
+                  <p className="text-[10px] text-muted/50 mt-0.5">{s.count} 张牌</p>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Submit */}
         <button
@@ -455,11 +453,19 @@ export default function DivinationPage() {
   // ── Drawing Screen ──
 
   function renderDrawing() {
+    if (mode === "liuyao") {
+      return <LiuYaoDrawing onComplete={handleLiuYaoComplete} />;
+    }
+
+    if (mode === "lingqian") {
+      return <LingQianDrawing onComplete={handleLingQianComplete} />;
+    }
+
+    // Tarot drawing
     const spread = SPREADS.find(s => s.id === selectedSpread)!;
     const totalCards = spread.count;
     const revealedCount = drawProgress;
 
-    // Generate fan angles
     const getRotation = (i: number, total: number) => {
       if (total === 1) return "0deg";
       const range = 12;
@@ -469,7 +475,6 @@ export default function DivinationPage() {
 
     return (
       <div className="space-y-8 pt-8">
-        {/* Card display area */}
         <div className="flex items-center justify-center min-h-[220px] relative">
           <div className="relative flex items-center justify-center" style={{ width: totalCards > 3 ? 280 : 240, height: 200 }}>
             {Array.from({ length: totalCards }).map((_, i) => {
@@ -489,7 +494,6 @@ export default function DivinationPage() {
                   }}
                 >
                   <div className={`relative ${isFlipping ? "animate-card-flip" : ""}`} style={{ transformStyle: "preserve-3d" }}>
-                    {/* Card back */}
                     <div
                       className={`rounded-xl border overflow-hidden ${
                         isRevealed && !isFlipping ? "hidden" : ""
@@ -498,7 +502,6 @@ export default function DivinationPage() {
                     >
                       <CardBackSVG className={totalCards > 3 ? "w-14 h-20" : totalCards === 1 ? "w-28 h-40" : "w-20 h-28"} />
                     </div>
-                    {/* Card face (shown after flip) */}
                     <div
                       className={`absolute inset-0 rounded-xl border border-surface-light bg-surface overflow-hidden ${
                         isRevealed ? "" : "hidden"
@@ -520,7 +523,6 @@ export default function DivinationPage() {
           </div>
         </div>
 
-        {/* Progress dots */}
         <div className="flex items-center justify-center gap-1.5">
           {Array.from({ length: totalCards }).map((_, i) => (
             <div
@@ -532,7 +534,6 @@ export default function DivinationPage() {
           ))}
         </div>
 
-        {/* Atmosphere text */}
         <p className="text-center text-xs text-muted/50 font-normal tracking-wider animate-breathe">{atmosText}</p>
       </div>
     );
@@ -542,16 +543,24 @@ export default function DivinationPage() {
 
   function renderResult() {
     if (!reading) return null;
+
+    if (mode === "liuyao") {
+      return <LiuYaoResult result={reading} onReset={handleReset} onGoToHistory={handleGoToHistory} />;
+    }
+
+    if (mode === "lingqian") {
+      return <LingQianResult result={reading} onReset={handleReset} onGoToHistory={handleGoToHistory} />;
+    }
+
+    // Tarot result
     const { cards, interpretation, advice, score, spreadName, question: q } = reading;
 
     return (
       <div className="space-y-5">
-        {/* Back button */}
         <button onClick={() => { setStep("ask"); setReading(null); }} className="text-xs text-muted hover:text-muted/80 transition-colors font-normal tracking-wider">
           ← 返回
         </button>
 
-        {/* Score card */}
         <div className="bg-surface/80 backdrop-blur-xl rounded-2xl border border-surface-light overflow-hidden">
           <div className="px-6 pt-6 pb-4 text-center">
             <p className="text-[10px] text-muted/50 tracking-[0.15em] mb-3 font-normal">综合运势评分</p>
@@ -566,17 +575,15 @@ export default function DivinationPage() {
           </div>
         </div>
 
-        {/* Question */}
         <div className="bg-surface/60 backdrop-blur-md rounded-2xl border border-surface-light px-5 py-3">
           <p className="text-[10px] text-muted/40 tracking-wider mb-1">关于</p>
           <p className="text-xs text-foreground/70 font-normal leading-relaxed tracking-wider">"{q}"</p>
         </div>
 
-        {/* Cards */}
         <div>
           <h3 className="text-[10px] text-muted/50 tracking-[0.15em] text-center mb-3 font-normal">抽到的牌</h3>
           <div className="flex gap-3 overflow-x-auto scrollbar-none pb-2">
-            {cards.map((card, i) => (
+            {cards.map((card: any, i: number) => (
               <div key={i} className="shrink-0">
                 <button
                   onClick={() => setExpandedCard(expandedCard === i ? null : i)}
@@ -584,7 +591,6 @@ export default function DivinationPage() {
                     expandedCard === i ? "border-primary/30" : "border-surface-light hover:border-primary/20"
                   }`}
                 >
-                  {/* Suit symbol */}
                   <div className={`text-lg ${suitColor(card.suit)} mb-1`}>
                     {card.suit === "major" ? "✦" : card.suit === "cups" ? "♡" : card.suit === "wands" ? "♤" : card.suit === "swords" ? "♧" : "♢"}
                   </div>
@@ -595,7 +601,6 @@ export default function DivinationPage() {
                   <p className="text-[10px] text-muted/50 mt-0.5 leading-tight">{card.keyword}</p>
                 </button>
 
-                {/* Expanded card detail */}
                 {expandedCard === i && (
                   <div className="mt-2 bg-surface/60 backdrop-blur-md rounded-xl border border-primary/20 p-3 space-y-2 animate-fade-in-fast w-64">
                     <div className="flex items-center gap-1.5">
@@ -619,13 +624,12 @@ export default function DivinationPage() {
           </div>
         </div>
 
-        {/* Interpretation */}
         <div className="bg-surface/80 backdrop-blur-xl rounded-2xl border border-surface-light overflow-hidden">
           <div className="px-5 pt-4 pb-2">
             <h3 className="text-[10px] text-muted/50 tracking-[0.15em] font-normal text-center">命运解读</h3>
           </div>
           <div className="px-5 pb-5 space-y-4">
-            {interpretation.split("\n\n").map((p, i) => (
+            {interpretation.split("\n\n").map((p: string, i: number) => (
               <p key={i} className="text-[13px] text-foreground/75 font-normal leading-relaxed tracking-wider">
                 {p}
               </p>
@@ -633,7 +637,6 @@ export default function DivinationPage() {
           </div>
         </div>
 
-        {/* Advice */}
         {advice && (
           <div className="bg-surface/80 backdrop-blur-xl rounded-2xl border border-surface-light overflow-hidden">
             <div className="px-5 pt-4 pb-2">
@@ -645,7 +648,6 @@ export default function DivinationPage() {
           </div>
         )}
 
-        {/* Actions */}
         <div className="space-y-3 pt-2">
           <button
             onClick={() => { setStep("ask"); setReading(null); setQuestion(""); setExpandedCard(null); }}
@@ -667,11 +669,13 @@ export default function DivinationPage() {
   // ── History Screen ──
 
   function renderHistory() {
-    const tarotEntries = historyEntries.filter(e => e.type === "tarot");
+    const filteredEntries = historyFilter === "all"
+      ? allHistoryEntries
+      : allHistoryEntries.filter(e => e.type === historyFilter);
 
     return (
       <div className="space-y-5">
-        {/* Back button */}
+        {/* Header */}
         <div className="flex items-center justify-between">
           <button onClick={() => { setStep("ask"); setSelectedEntry(null); }} className="text-xs text-muted hover:text-muted/80 transition-colors font-normal tracking-wider">
             ← 返回
@@ -680,8 +684,25 @@ export default function DivinationPage() {
           <div className="w-10" />
         </div>
 
+        {/* Filter tabs */}
+        <div className="flex gap-1 bg-surface-light/50 rounded-xl p-0.5">
+          {HISTORY_TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setHistoryFilter(tab.key)}
+              className={`flex-1 py-2 text-xs tracking-wider rounded-lg transition-all ${
+                historyFilter === tab.key
+                  ? "bg-surface shadow-sm text-foreground/70"
+                  : "text-muted/50 hover:text-muted"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         {/* Empty state */}
-        {!historyLoading && tarotEntries.length === 0 && (
+        {!historyLoading && filteredEntries.length === 0 && (
           <div className="text-center space-y-5 pt-16">
             <div className="w-16 h-16 mx-auto text-primary/30">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="w-full h-full">
@@ -689,7 +710,7 @@ export default function DivinationPage() {
               </svg>
             </div>
             <h2 className="text-xl font-thin tracking-[0.1em] text-foreground/85">暂无占卜记录</h2>
-            <p className="text-xs text-muted/60 font-normal tracking-wider">开始你的第一次塔罗占卜</p>
+            <p className="text-xs text-muted/60 font-normal tracking-wider">开始你的第一次占卜</p>
             <button
               onClick={() => setStep("ask")}
               className="w-full max-w-xs mx-auto h-12 text-sm font-normal tracking-wider bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15 rounded-2xl transition-all"
@@ -701,11 +722,12 @@ export default function DivinationPage() {
 
         {/* Entry list */}
         <div className="space-y-3">
-          {tarotEntries.map(entry => {
+          {filteredEntries.map(entry => {
             const parsed = parseReadingResult(entry);
             const isOpen = selectedEntry === entry.id;
-            let cards: TarotCard[] = [];
-            try { cards = JSON.parse(entry.cards); } catch {}
+            let cards: any[] = [];
+            try { cards = JSON.parse(entry.cards || "[]"); } catch {}
+
             return (
               <div key={entry.id}>
                 <button
@@ -718,7 +740,9 @@ export default function DivinationPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-foreground/85 font-normal truncate">{entry.question}</p>
                       <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-[10px] text-muted/50">{entry.spreadName || "塔罗占卜"}</span>
+                        <span className="text-[10px] text-muted/50">
+                          {entry.type === "tarot" ? (entry.spreadName || "塔罗占卜") : typeLabel(entry.type)}
+                        </span>
                         <span className="text-[10px] text-muted/30">·</span>
                         <span className={`text-[10px] font-normal ${scoreColor(parsed.score)}`}>{parsed.score}分</span>
                       </div>
@@ -735,10 +759,10 @@ export default function DivinationPage() {
                 {/* Expanded detail */}
                 {isOpen && (
                   <div className="mt-2 bg-surface/60 backdrop-blur-md rounded-2xl border border-surface-light p-4 space-y-4 animate-fade-in-fast">
-                    {/* Mini cards */}
-                    {cards.length > 0 && (
+                    {/* Mini cards (tarot only) */}
+                    {entry.type === "tarot" && cards.length > 0 && (
                       <div className="flex gap-2 overflow-x-auto scrollbar-none">
-                        {cards.map((card, i) => (
+                        {cards.map((card: any, i: number) => (
                           <div key={i} className="shrink-0 w-16 bg-surface/80 rounded-lg border border-surface-light p-2 text-center">
                             <div className={`text-xs ${suitColor(card.suit)}`}>
                               {card.suit === "major" ? "✦" : card.suit === "cups" ? "♡" : card.suit === "wands" ? "♤" : "♧"}
@@ -781,7 +805,7 @@ export default function DivinationPage() {
         )}
 
         {/* History loading */}
-        {historyLoading && historyEntries.length === 0 && (
+        {historyLoading && filteredEntries.length === 0 && (
           <div className="space-y-3 pt-4">
             {[1, 2, 3].map(i => (
               <div key={i} className="h-20 rounded-2xl bg-surface/40 animate-shimmer" />
@@ -816,7 +840,6 @@ function renderSpreadIcon(spreadId: string, active: boolean) {
       </svg>
     );
   }
-  // celtic
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} className={`w-6 h-6 ${color}`}>
       <rect x="7" y="7" width="10" height="14" rx="1" />

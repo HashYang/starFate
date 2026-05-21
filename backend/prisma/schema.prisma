@@ -38,6 +38,7 @@ model User {
   archives     FateArchive[]
   dailyFortunes DailyFortune[]
   chatContexts  ChatContext[]
+  fateBook     FateBook?
 }
 
 model FateArchive {
@@ -90,6 +91,31 @@ model DailyFortune {
 
   @@unique([userId, date])
   @@index([userId, date])
+}
+
+model FateBook {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  // 纯计算数据（fate-engine 输出，JSON）
+  baziData  String   // 四柱/五行/十神/纳音/用神忌神
+  dayunData String   // 大运排盘结果 JSON
+  // AI 解读数据
+  summary   String   // AI 生成的总论
+  pattern   String?  // 格局名称
+  personality String? // 性格画像
+  dimensions String  // JSON, 四维度评价(事业/财运/感情/健康)
+  dayunInterpretation String // JSON, 大运解读(当前+未来3步)
+  liunian   String?  // JSON, 当前流年分析
+  advice    String?  // 综合建议
+  details   String?  // JSON, AI扩展内容(四柱详解/藏干/神煞解读/五行/十神/专项/关键年/流月)
+  // 元数据
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
 
 model ChatContext {

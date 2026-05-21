@@ -123,9 +123,36 @@ export const readings = {
       sessionId: string;
       cards: any[];
       interpretation: string;
+      advice: string;
       score: number;
       spreadName: string;
+      archivedId: string;
     }>("/readings/tarot", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  liuyao: (data: { question: string; lines: { value: 0 | 1; moving: boolean }[]; userId: string }) =>
+    request<{
+      sessionId: string;
+      hexagram: any;
+      interpretation: string;
+      advice: string;
+      score: number;
+      archivedId: string;
+    }>("/readings/liuyao", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  lingqian: (data: { question: string; stickNumber: number; userId: string }) =>
+    request<{
+      sessionId: string;
+      stick: any;
+      poem: string;
+      interpretation: string;
+      advice: string;
+      score: number;
+      archivedId: string;
+    }>("/readings/lingqian", {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -133,11 +160,13 @@ export const readings = {
 
 // AI Chat
 export const chat = {
-  send: (data: { message: string; userId: string; contextId?: string }) =>
+  send: (data: { message: string; userId: string; contextId?: string; divinationContext?: string }) =>
     request<{ reply: string; contextId: string }>("/ai/chat", {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  history: (userId: string) =>
+    request<{ messages: { role: "user" | "assistant"; content: string }[]; contextId: string | null }>(`/ai/chat/history/${userId}`),
 };
 
 // Archive (divination history)
@@ -156,5 +185,16 @@ export const user = {
     request<any>(`/user/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
+    }),
+};
+
+// Fate Book
+export const fateBook = {
+  get: (userId: string) =>
+    request<any>(`/fate-book/${userId}`),
+  generate: (userId: string) =>
+    request<any>("/fate-book/generate", {
+      method: "POST",
+      body: JSON.stringify({ userId }),
     }),
 };

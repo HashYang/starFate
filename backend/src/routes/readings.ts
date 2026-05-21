@@ -3,7 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
 import { readingRateLimit } from '../middleware/rateLimit';
-import { generateTarotReading, generateDailyFortune } from '../services/aiService';
+import { generateTarotReading, generateLiuYaoReading, generateLingQianReading, generateDailyFortune } from '../services/aiService';
+import { linesToLowerTrigram, linesToUpperTrigram } from '../data/trigrams';
+import { getHexagramName, getHexagramNumber } from '../data/hexagrams';
+import { pickRandomStick } from '../data/lingqian-sticks';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -84,6 +87,150 @@ router.post('/tarot', readingRateLimit, async (req: Request, res: Response) => {
       return;
     }
     console.error('Tarot reading error:', err);
+    res.status(500).json({ message: '占卜失败，请稍后再试' });
+  }
+});
+
+// POST /api/v1/readings/liuyao
+router.post('/liuyao', readingRateLimit, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      question: z.string().min(1).max(500),
+      lines: z.array(z.object({ value: z.union([z.literal(0), z.literal(1)]), moving: z.boolean() })).length(6),
+      userId: z.string(),
+    });
+    const data = schema.parse(req.body);
+
+    if (req.user?.userId !== data.userId) {
+      res.status(403).json({ message: '无权访问' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: data.userId } });
+    const lineValues = data.lines.map(l => l.value);
+    const lowerTri = linesToLowerTrigram(lineValues);
+    const upperTri = linesToUpperTrigram(lineValues);
+
+    const hexagram = {
+      lines: data.lines,
+      upperTrigram: { name: upperTri.name, symbol: upperTri.symbol, element: upperTri.element, attribute: upperTri.attribute },
+      lowerTrigram: { name: lowerTri.name, symbol: lowerTri.symbol, element: lowerTri.element, attribute: lowerTri.attribute },
+      hexagramName: getHexagramName(lowerTri.binary, upperTri.binary),
+      hexagramNumber: getHexagramNumber(lowerTri.binary, upperTri.binary),
+    };
+
+    const reading = await generateLiuYaoReading({
+      question: data.question,
+      lines: data.lines,
+      hexagramName: hexagram.hexagramName,
+      hexagramNumber: hexagram.hexagramNumber,
+      upperTrigramName: upperTri.name,
+      lowerTrigramName: lowerTri.name,
+      upperTrigramAttr: upperTri.attribute,
+      lowerTrigramAttr: lowerTri.attribute,
+      userContext: user ? { constellation: user.constellation || undefined, chineseZodiac: user.chineseZodiac || undefined } : undefined,
+    });
+
+    const archive = await prisma.fateArchive.create({
+      data: {
+        userId: data.userId,
+        type: 'liuyao',
+        question: data.question,
+        readingResult: JSON.stringify(reading),
+        aiInterpretation: reading.details,
+        aiAdvice: reading.advice,
+        cards: JSON.stringify(hexagram),
+        spreadName: '六爻占卜',
+        tags: JSON.stringify(['六爻占卜', hexagram.hexagramName]),
+        predictionStatus: 'pending',
+      },
+    });
+
+    await prisma.user.update({
+      where: { id: data.userId },
+      data: { totalReadings: { increment: 1 } },
+    });
+
+    res.json({
+      sessionId: archive.id,
+      question: data.question,
+      hexagram,
+      interpretation: reading.details,
+      advice: reading.advice,
+      score: reading.score,
+      archivedId: archive.id,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: '参数错误', errors: err.errors });
+      return;
+    }
+    console.error('LiuYao reading error:', err);
+    res.status(500).json({ message: '占卜失败，请稍后再试' });
+  }
+});
+
+// POST /api/v1/readings/lingqian
+router.post('/lingqian', readingRateLimit, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      question: z.string().min(1).max(500),
+      stickNumber: z.number().int().min(1).max(100),
+      userId: z.string(),
+    });
+    const data = schema.parse(req.body);
+
+    if (req.user?.userId !== data.userId) {
+      res.status(403).json({ message: '无权访问' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: data.userId } });
+    const stick = pickRandomStick();
+
+    const reading = await generateLingQianReading({
+      question: data.question,
+      stickNumber: stick.number,
+      stickLevel: stick.level,
+      userContext: user ? { constellation: user.constellation || undefined, chineseZodiac: user.chineseZodiac || undefined } : undefined,
+    });
+
+    const archive = await prisma.fateArchive.create({
+      data: {
+        userId: data.userId,
+        type: 'lingqian',
+        question: data.question,
+        readingResult: JSON.stringify(reading),
+        aiInterpretation: reading.details,
+        aiAdvice: reading.advice,
+        cards: JSON.stringify(stick),
+        spreadName: '灵签占卜',
+        tags: JSON.stringify(['灵签占卜', stick.level]),
+        predictionStatus: 'pending',
+      },
+    });
+
+    await prisma.user.update({
+      where: { id: data.userId },
+      data: { totalReadings: { increment: 1 } },
+    });
+
+    res.json({
+      sessionId: archive.id,
+      question: data.question,
+      stick,
+      poem: reading.poem || '',
+      interpretation: reading.details,
+      advice: reading.advice,
+      score: reading.score,
+      archivedId: archive.id,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: '参数错误', errors: err.errors });
+      return;
+    }
+    console.error('LingQian reading error:', err);
     res.status(500).json({ message: '占卜失败，请稍后再试' });
   }
 });
