@@ -1,6 +1,6 @@
 # 技术评估文档：如何让 AI 命理更准确、更有依据
 
-> 基于 PRD v0.4 | 2026-05-19 | Phase 0 完成 + 灵签 v1 上线 + 管理后台上线
+> 基于 PRD v0.6 | 2026-05-21 | 全功能开发完成 + 邮箱验证码 + Docker 部署 + 生产环境
 
 ---
 
@@ -755,9 +755,249 @@ admin/src/components/
 | Admin API | 复用现有后端 | 现有 Express 服务，新增路由前缀 |
 | 管理域名 | admin.starfate.app | 可与主站不同域名避免混淆 |
 
+### 8.8 生产部署要点
+
+#### 数据安全
+- 软删除 (isDeleted) 比物理删除更安全: 保留关联查询能力
+- deletedAt 记录删除时间，支持数据恢复和审计
+- admin JWT 24h 短过期，独立 secret，与用户 JWT 完全隔离
+
+#### Docker 构建注意事项
+
+```dockerfile
+# 构建时 prisma generate 需要 DATABASE_URL，但只需要格式不需要真实连接
+# 使用 dummy URL 绕过验证
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+RUN npx prisma generate
+```
+
 ---
 
-## 九、开放问题 (待决策)
+## 九、邮箱验证码系统 (v0.5)
+
+### 9.1 架构设计
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  用户输入    │────→│  后端验证码   │────→│  Resend     │
+│  邮箱        │     │  服务        │     │  SMTP       │
+└─────────────┘     │             │     └─────────────┘
+                    │  codeStore  │
+                    │  (Map)      │
+                    │   ├─ hash   │
+                    │   ├─ expire │
+                    │   └─ attmpt│
+                    └─────────────┘
+```
+
+### 9.2 安全策略
+
+```typescript
+// 验证码安全存储策略
+codeStore = Map<email, {
+  hash: string;        // SHA-256(code) — 不存明文
+  expiresAt: number;   // now + 10min
+  attempts: number;    // 初始 0，最大 5
+  lastSentAt: number;  // 用于 60s 冷却
+}>
+
+verifiedEmails = Set<email>  // 已验证但未注册的临时白名单
+```
+
+### 9.3 登录/注册流程
+
+```
+send-code:
+  检查 lastSentAt < 60s → 拒绝 (冷却期)
+  生成 6 位 code → SHA-256 哈希 → 存入 Map
+  发送原文到邮箱 (nodemailer)
+
+verify-code:
+  查找 Map → 不存在则用 verifiedEmails 检查
+  验证 hash === SHA-256(input)
+  校验 attempts < 5
+  已有用户 → 生成 JWT + 返回 token
+  新用户 → 加入 verifiedEmails + 返回 verified=true
+
+complete-profile:
+  检查 verifiedEmails (或 Map)
+  创建用户 (nickname/birthDate/birthHour/birthPlace)
+  返回 JWT + user
+```
+
+### 9.4 SMTP 配置
+
+```typescript
+// nodemailer + Resend SMTP
+transport = nodemailer.createTransport({
+  host: smtp.host,     // smtp.resend.com
+  port: smtp.port,     // 465
+  secure: port === 465,
+  auth: { user: 'resend', pass: '<api-key>' }
+})
+
+// 无 SMTP 配置时自动降级为控制台输出 (开发环境)
+if (!smtp.host || !smtp.user || !smtp.pass) {
+  console.log(`验证码: ${code}`);  // 开发调试用
+}
+```
+
+### 9.5 生产环境建议
+
+| 项目 | 当前实现 | 生产建议 |
+|------|---------|---------|
+| 验证码存储 | 内存 Map (单进程) | Redis (多实例 + 持久化) |
+| 邮件发送 | nodemailer + Resend | 可用 Resend API 替代 (更高可靠性) |
+| 冷却期 | 内存计时 | Redis TTL |
+| 试错限制 | 内存计数 | Redis INCR + EXPIRE |
+| 邮件模板 | 内联 HTML | 独立的邮件模板系统 |
+
+---
+
+## 十、生产部署架构 (v0.6)
+
+### 10.1 部署拓扑
+
+```
+                        ┌──────────────────┐
+                        │   阿里云 DNS      │
+                        │  starfate.top     │
+                        │  → Vercel        │
+                        └────────┬─────────┘
+                                 │
+          ┌──────────────────────┼──────────────────────┐
+          │                      │                      │
+          ▼                      ▼                      ▼
+  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+  │  Vercel (Web)    │  │  Vercel (Admin)  │  │  Railway (API)   │
+  │  Next.js 16      │  │  Next.js 16      │  │  Express + Prisma│
+  │  starfate.top    │  │  admin.starfate  │  │  Docker 部署      │
+  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘
+           │                     │                      │
+           └─────────────────────┼──────────────────────┘
+                                 │ API 请求 (HTTPS)
+                                 ▼
+                        ┌──────────────────┐
+                        │  Railway PgSQL   │
+                        │  PostgreSQL 16   │
+                        └──────────────────┘
+
+  外部服务:
+  ┌──────────────────┐  ┌──────────────────┐
+  │  Resend SMTP     │  │  Claude API      │
+  │  验证码邮件发送   │  │  AI 解读/对话    │
+  └──────────────────┘  └──────────────────┘
+```
+
+### 10.2 双 Prisma Schema 策略
+
+```prisma
+// 开发: backend/prisma/schema.prisma
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")  // file:./dev.db
+}
+
+// 生产: backend/prisma/schema.production.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")  // Railway 注入
+}
+```
+
+Docker 构建时自动切换:
+```bash
+# Dockerfile 中的构建步骤
+RUN mv prisma/schema.production.prisma prisma/schema.prisma
+RUN npx prisma generate
+```
+
+### 10.3 Docker 多阶段构建
+
+```dockerfile
+# Stage 1: Builder
+FROM node:20-slim AS builder
+WORKDIR /app
+COPY backend/ ./
+RUN npm install
+RUN mv prisma/schema.production.prisma prisma/schema.prisma
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+RUN npx prisma generate
+RUN npm run build
+
+# Stage 2: Runner
+FROM node:20-slim AS runner
+WORKDIR /app
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./
+EXPOSE 3001
+CMD ["sh", "-c", "npx prisma db push --schema=prisma/schema.prisma && node dist/index.js"]
+```
+
+### 10.4 Railway 配置 (railway.toml)
+
+```toml
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+restartPolicyType = "on_failure"
+
+[service]
+startCommand = "node dist/index.js"
+```
+
+### 10.5 本地 PostgreSQL 开发 (docker-compose)
+
+```yaml
+version: "3.8"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: starfate
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+```
+
+### 10.6 国内访问限制应对
+
+| 问题 | 影响 | 解决方案 |
+|------|------|---------|
+| npm 镜像超时 | 依赖安装失败 | 使用 yarn (镜像更稳定) |
+| GitHub HTTPS 被墙 | git push 失败 | 改用 SSH deploy key + 防火墙规则 |
+| Railway SSL 不稳定 | 无法访问管理后台 | 通过 ClashX 代理访问 |
+| Railway 国内延迟高 | API 响应慢 | 考虑迁移到国内服务器 (备选) |
+
+### 10.7 管理员生产账号创建
+
+创建管理员账号有三种方式:
+
+```bash
+# 方式 1: seed 脚本 (本地开发)
+npx tsx backend/src/seed.ts admin@starfate.app admin888
+
+# 方式 2: 生产环境 setup API (仅首次可用)
+POST /api/v1/admin/auth/setup
+Body: { "email": "admin@starfate.app", "password": "admin888", "nickname": "管理员" }
+
+# 方式 3: 临时 promote API (已有用户升级)
+POST /api/v1/auth/promote-admin
+Body: { "email": "admin@starfate.app", "secret": "starfate-promote-2026" }
+```
+
+---
+
+## 十一、开放问题 (待决策)
 
 ### 技术选型
 

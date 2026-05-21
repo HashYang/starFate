@@ -140,6 +140,14 @@ export const chat = {
     }),
 };
 
+// Archive (divination history)
+export const archive = {
+  list: (userId: string, page: number = 1) =>
+    request<{ items: any[]; total: number; page: number; pageSize: number; hasMore: boolean }>(`/archive/${userId}?page=${page}&pageSize=20`),
+  detail: (id: string) =>
+    request<any>(`/archive/entry/${id}`),
+};
+
 // User
 export const user = {
   profile: (id: string) =>

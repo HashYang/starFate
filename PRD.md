@@ -1,6 +1,6 @@
 # PRD: AI 命理伴侣 App
 
-> 版本: v0.4 | 状态: Phase 0 完成 + UI 全面翻新 + 每日灵签上线 + 管理后台上线 | 最后更新: 2026-05-19
+> 版本: v0.6 | 状态: 邮箱验证码登录上线 + 生产环境部署 (Railway + Vercel) | 最后更新: 2026-05-21
 
 ---
 
@@ -440,9 +440,111 @@ AI: "我看看你上次的占卜记录...你上次抽到了星星牌
 ```
 邮箱: admin@starfate.app
 密码: admin888
-(通过 seed 脚本创建: npx tsx src/seed.ts <email> <password> <name>)
+(通过 seed 脚本创建: npx tsx backend/src/seed.ts <email> <password> <name>)
 ```
+
+### 11.6 生产环境部署
+
+| 组件 | 平台 | 说明 |
+|------|------|------|
+| 前端 (Web) | Vercel | 自动部署 GitHub main 分支，域名 starfate.top |
+| 管理后台 (Admin) | Vercel | 独立项目，域名 admin.starfate.top |
+| 后端 API | Railway | Docker 部署，PostgreSQL 托管，域名 *.up.railway.app |
+| 邮件服务 | Resend SMTP | API Key 方式认证，发送验证码邮件 |
+
+**域名配置**:
+- `starfate.top` → Vercel (前端)
+- `www.starfate.top` → Vercel 自动转发
+- 后端暂用 Railway 默认域名 (国内访问可能不稳定)
 
 ---
 
-*PRD v0.4 持续更新*
+## 12. 邮箱验证码登录 (v0.5)
+
+### 12.1 概述
+
+新增邮箱验证码登录/注册方式，替代传统密码登录。用户输入邮箱后接收 6 位验证码，验证通过后自动登录（已有用户）或进入资料完善流程（新用户）。
+
+### 12.2 交互流程
+
+```
+用户输入邮箱
+  → 点击"发送验证码"（进入 60s 倒计时）
+  → 邮箱收到 6 位验证码
+  → 输入验证码（6 个独立输入框，自动跳到下一格）
+  → 验证通过
+    ├── 已有用户 → 直接登录（返回 token + user）
+    └── 新用户 → 进入资料完善（昵称+出生日期+时辰+出生地）
+      → 完善后创建用户并登录
+```
+
+### 12.3 安全设计
+
+- **验证码**: 6 位数字，SHA-256 哈希后存储（不存明文）
+- **有效期**: 10 分钟过期
+- **冷却期**: 同一邮箱 60s 内不可重复发送
+- **试错限制**: 同一邮箱最多 5 次验证尝试，超限后需重新发送
+- **存储**: 开发环境用内存 Map，生产环境应切换 Redis
+- **密码登录保留**: 用户可自由切换"密码登录"和"验证码登录"两种方式
+
+### 12.4 API 端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/auth/email/send-code` | POST | 发送验证码到邮箱（60s 冷却） |
+| `/api/v1/auth/email/verify-code` | POST | 验证验证码，已存在用户直接登录 |
+| `/api/v1/auth/email/complete-profile` | POST | 新用户验证后完善资料并创建账号 |
+
+---
+
+## 13. 部署架构 (v0.6)
+
+### 13.1 生产环境拓扑
+
+```
+用户 → starfate.top (Vercel) ──→ Railway API ──→ Railway PostgreSQL
+管理员 → admin.starfate.top (Vercel) ──→ 同上
+```
+
+### 13.2 Docker 部署
+
+后端使用 Docker 多阶段构建部署到 Railway：
+
+```
+阶段 1 (builder): 安装依赖 → Prisma generate (PostgreSQL schema) → tsc 编译
+阶段 2 (runner): 复制产物 → 安装 openssl → 启动 (prisma db push + node)
+```
+
+### 13.3 双 Prisma Schema 策略
+
+```
+开发环境: schema.prisma → provider = "sqlite" → 零配置本地运行
+生产环境: schema.production.prisma → provider = "postgresql" → Docker 构建时替换
+```
+
+Docker 构建时自动执行: `mv prisma/schema.production.prisma prisma/schema.prisma`
+
+### 13.4 数据库
+
+- **开发**: SQLite (文件存储，`backend/prisma/dev.db`)
+- **生产**: Railway PostgreSQL 16
+- **环境变量**: `DATABASE_URL` 区分开发/生产
+
+### 13.5 环境变量清单
+
+| 变量 | 说明 | 开发环境 | 生产环境 |
+|------|------|----------|----------|
+| `DATABASE_URL` | 数据库连接 | `file:./dev.db` | Railway 自动注入 |
+| `JWT_SECRET` | 用户 JWT 密钥 | dev 默认值 | 生产需修改 |
+| `ADMIN_JWT_SECRET` | 管理 JWT 密钥 | dev 默认值 | 生产需修改 |
+| `SMTP_HOST` | 邮件服务器 | `smtp.resend.com` | 同上 |
+| `SMTP_PORT` | 邮件服务器端口 | `465` | 同上 |
+| `SMTP_USER` | SMTP 用户名 | `resend` | 同上 |
+| `SMTP_PASS` | SMTP API Key | Resend API Key | 生产需配置 |
+| `SMTP_FROM` | 发件人地址 | `noreply@starfate.app` | 需验证域名 |
+| `CORS_ORIGIN` | 跨域白名单 | `*` | 生产限制域名 |
+| `NEXT_PUBLIC_API_URL` | 前端 API 地址 | `localhost:3001` | Railway 域名 |
+
+---
+
+*PRD v0.6 持续更新*

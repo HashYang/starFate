@@ -1,8 +1,8 @@
 # 开发计划：AI 命理伴侣 Web MVP
 
 > 从 0 到上线，分阶段交付，每阶段可测试可验证
-> 技术栈: Next.js + Node.js + SQLite(dev) + Claude API
-> 当前状态: Phase 0-5 完成 + UI 新中式禅意翻新 + 每日灵签上线 + 管理后台上线
+> 技术栈: Next.js + Node.js + SQLite(dev)/PostgreSQL(prod) + Claude API + Docker
+> 当前状态: Phase 0-7 完成 (全功能开发完成 + 生产环境部署)
 
 ---
 
@@ -79,7 +79,8 @@ UI 框架:
   ├── API 路由: auth/readings/chat/user 全部可用
   ├── Claude API: 缺少 API Key 时有本地运势兜底算法
   ├── 包管理: 用 yarn (npm 在 npmmirror 上超时)
-  └── 部署: 用 Vercel (前端) + Railway/Fly.io (后端)？
+  └── 部署: 用 Vercel (前端) + Railway (后端 Docker 部署)
+│   └── 国内访问限制: npm 镜像不稳定改用 yarn，GitHub HTTPS 被墙改用 SSH deploy key
 
 注意: SQLite 不支持原生 Json 和 String[] 类型
   → 所有 Json/String[] 字段改为 String，存储 JSON.stringify 的字符串
@@ -711,3 +712,157 @@ Phase 4 → Phase 5: 有用户愿意付费？
 7. ✅ 已删除管理员账号无法通过中间件验证
 8. ✅ 前端路由守卫正确拦截未登录访问
 ```
+
+---
+
+## Phase 7: 邮箱验证码登录 (v0.5, 已完成)
+
+### 目标
+- 用户可通过邮箱验证码登录/注册，无需密码
+- 安全可靠，防滥用
+- SMTP 配置后能发送真实邮件
+
+### 实现内容
+
+#### 后端
+
+| 文件 | 说明 |
+|------|------|
+| `backend/src/services/emailService.ts` | nodemailer 邮件发送 (SMTP/控制台双模式) |
+| `backend/src/config/index.ts` | 新增 `smtp` 配置项 (host/port/user/pass/from) |
+| `backend/src/routes/auth.ts` | 3 个新端点 + 验证码安全存储 (SHA-256 哈希) |
+
+#### 验证码安全设计
+
+```
+生成: 6 位数字 (Math.random 生成 → crypto.randomInt)
+存储: SHA-256 哈希后存入 Map (不存明文)
+有效期: 10 分钟 → 自动清理 (setInterval 每 5 分钟)
+冷却: 同一邮箱 60s 内不可重复发送
+试错: 同一邮箱最多 5 次验证 → 超过后需重新发送
+```
+
+#### 前端 (web/src/app/login/page.tsx)
+
+| 功能 | 说明 |
+|------|------|
+| 登录方式切换 | "密码登录" / "验证码登录" 子标签切换 |
+| 验证码输入 | 6 个独立输入框，自动跳转到下一格 |
+| 发送冷却 | 点击发送后 60s 倒计时，按钮禁用 |
+| 新用户流程 | 验证后自动检测新用户 → 资料完善表单 (昵称/出生日期/时辰/出生地) |
+
+#### SMTP 配置 (Resend)
+
+```
+SMTP_HOST: smtp.resend.com
+SMTP_PORT: 465
+SMTP_USER: resend
+SMTP_PASS: <Resend API Key>
+SMTP_FROM: noreply@starfate.app (需验证域名)
+```
+
+### API 端点
+
+| 端点 | 说明 | 冷却/限制 |
+|------|------|-----------|
+| `POST /auth/email/send-code` | 发送验证码 | 60s 冷却，10min 过期 |
+| `POST /auth/email/verify-code` | 验证码校验 + 登录 | 5 次试错限制 |
+| `POST /auth/email/complete-profile` | 新用户完善资料 | 需先验证邮箱 |
+
+---
+
+## Phase 8: 生产环境部署 (v0.6, 进行中)
+
+### 目标
+- 后端部署到 Railway (Docker + PostgreSQL)
+- 前端部署到 Vercel
+- 管理后台部署到 Vercel
+- 域名配置完成
+
+### 当前状态
+
+| 组件 | 状态 | 域名 |
+|------|------|------|
+| 前端 (Web) | ✅ 已部署 (Vercel) | starfate.top |
+| 后端 API | ⚠️ 已部署但代码为旧版本 (Railway Docker) | *.up.railway.app |
+| 管理后台 (Admin) | ⚠️ 已部署但后端未联动 (Vercel) | admin.starfate.top (待配置) |
+| 管理员账号 | ⚠️ 账号存在但 role 未升级为 admin | admin@starfate.app |
+| 域名 DNS | ✅ starfate.top 已指向 Vercel | Aliyun DNS |
+
+### 部署架构
+
+```
+生产环境:
+  ┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+  │  Vercel (Web)   │────→│  Railway (API)   │────→│  Railway PgSQL   │
+  │  starfate.top   │     │  Docker 部署      │     │  PostgreSQL 16   │
+  └─────────────────┘     │  schemas: 双 Prisma│     └──────────────────┘
+  ┌─────────────────┐     └──────────────────┘
+  │  Vercel (Admin) │────→│
+  │  admin.starfate │     │
+  └─────────────────┘     │
+                          │  外部:
+                          │  ┌──────────────────┐
+                          │  │  Resend SMTP     │
+                          │  │  验证码邮件发送    │
+                          │  └──────────────────┘
+```
+
+### Docker 部署要点
+
+```
+Docker 多阶段构建:
+  builder: npm install → prisma generate (PostgreSQL schema) → tsc 编译
+  runner: node_modules + dist + prisma 复制 → prisma db push → node 启动
+
+双 Prisma Schema:
+  schema.prisma → SQLite (本地开发)
+  schema.production.prisma → PostgreSQL (Railway)
+  构建时: mv schema.production.prisma schema.prisma
+
+Railway 配置 (railway.toml):
+  builder = DOCKERFILE
+  dockerfilePath = backend/Dockerfile
+  healthcheckPath = /health
+```
+
+### 遗留问题
+
+1. **Railway 部署最新代码**: 当前 Railway 运行旧代码，需触发重新部署
+   - GitHub push (SSH) 不触发 Railway webhook → 需要在 Railway 手动触发
+   - Railway 国内访问 SSL 不稳定 → 需通过代理操作
+2. **管理员账号升级**: admin@starfate.app 角色为 "user" 而非 "admin"
+   - 方案 A: 部署最新代码后调用 `POST /api/v1/auth/promote-admin`
+   - 方案 B: 直接连接 Railway PostgreSQL 执行 `UPDATE "User" SET role='admin' WHERE email='admin@starfate.app'`
+3. **管理后台联动**: admin.starfate.top 需配置 `NEXT_PUBLIC_API_URL` 指向 Railway 后端
+4. **Vercel 前端配置**: `NEXT_PUBLIC_API_URL` 需设置为 Railway 后端域名
+
+### 环境变量 (生产)
+
+```env
+# Railway 自动设置
+DATABASE_URL=postgresql://...  (Railway 自动注入)
+
+# 需手动配置
+JWT_SECRET=<生产 JWT 密钥>
+ADMIN_JWT_SECRET=<生产管理 JWT 密钥>
+ANTHROPIC_API_KEY=<Claude API Key>
+DEEPSEEK_API_KEY=<DeepSeek API Key>
+SMTP_PASS=<Resend API Key>
+CORS_ORIGIN=https://starfate.top,https://admin.starfate.top
+
+# Vercel 配置
+NEXT_PUBLIC_API_URL=<Railway 后端域名>
+```
+
+---
+
+## 下一步计划
+
+| 优先级 | 任务 | 说明 |
+|--------|------|------|
+| P0 | 部署最新代码到 Railway | Railway PostgreSQL 中 admin 账号需要升级 |
+| P0 | 升级管理员角色 | admin@starfate.app → role='admin' |
+| P1 | Vercel 前端配置 API 地址 | 配置 Railway 后端域名 |
+| P1 | 配置 admin.starfate.top | 部署管理后台到 Vercel |
+| P2 | 国内访问优化 | 考虑国内服务器/CDN |
