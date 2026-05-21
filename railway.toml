@@ -7,4 +7,4 @@ healthcheckPath = "/health"
 restartPolicyType = "on_failure"
 
 [service]
-startCommand = "node dist/index.js"
+startCommand = "npx prisma db push --schema=prisma/schema.prisma && node dist/index.js"

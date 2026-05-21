@@ -28,7 +28,11 @@ if (config.isDev) {
 
 // Health check
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    ai: config.deepseek.apiKey ? 'configured' : 'missing',
+  });
 });
 
 // API Routes
