@@ -20,6 +20,13 @@ async function request<T>(
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userId");
+      localStorage.removeItem("nickname");
+      window.location.href = "/login";
+      throw new APIError(401, "认证已过期，请重新登录");
+    }
     const body = await res.json().catch(() => ({ message: "请求失败" }));
     throw new APIError(res.status, body.message || "服务器错误");
   }
@@ -194,6 +201,17 @@ export const fateBook = {
     request<any>(`/fate-book/${userId}`),
   generate: (userId: string) =>
     request<any>("/fate-book/generate", {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    }),
+};
+
+// Zi Wei Dou Shu
+export const zwds = {
+  get: (userId: string) =>
+    request<any>(`/zwds/${userId}`),
+  generate: (userId: string) =>
+    request<any>("/zwds/generate", {
       method: "POST",
       body: JSON.stringify({ userId }),
     }),

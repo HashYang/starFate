@@ -24,7 +24,10 @@ export function useAuth() {
       fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1"}/user/${userId}`, {
         headers: { Authorization: `Bearer ${storedToken}` },
       })
-        .then((r) => r.json())
+        .then(async (r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
         .then((data) => {
           setUser({
             id: data.id,
